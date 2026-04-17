@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Number Skill - Brain Performance</title>
+    <link href="https://googleapis.com" rel="stylesheet">
+    <style>
+        :root { --primary: #0984e3; --bg: #f0f3f7; --success: #55efc4; --success-dark: #00b894; --danger: #ff7675; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; font-family: 'Prompt', sans-serif; }
+        body { margin: 0; background: var(--bg); display: flex; justify-content: center; min-height: 100vh; padding: 15px; touch-action: manipulation; }
+        .container { background: white; padding: 25px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; align-self: center; }
+        input { width: 100%; padding: 15px; margin: 8px 0; border: 2px solid #edf2f7; border-radius: 14px; font-size: 1rem; outline: none; }
+        button { background: var(--primary); color: white; border: none; padding: 16px; border-radius: 16px; font-size: 1.1rem; cursor: pointer; width: 100%; font-weight: 600; margin-top: 10px; box-shadow: 0 4px 0 #0764ad; }
+        button:active { transform: translateY(2px); box-shadow: 0 2px 0 #0764ad; }
+        .game-area { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2000; display: none; background: #2d3436; flex-direction: column; align-items: center; justify-content: center; color: white; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; width: 90%; max-width: 320px; }
+        .num-btn { background: #ffffff; color: #2d3436; font-size: 2.2rem; font-weight: bold; border-radius: 20px; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 0 #dfe6e9; border: 2px solid #edf2f7; }
+        .num-btn.correct { background: var(--success) !important; color: var(--success-dark) !important; box-shadow: 0 2px 0 var(--success-dark) !important; transform: translateY(4px) scale(0.95); pointer-events: none; }
+        .num-btn.wrong { background: var(--danger) !important; color: white !important; transform: scale(1.1); z-index: 10; }
+        .hidden { display: none; }
+        #avgResult { font-size: 3.5rem; margin: 5px 0; line-height: 1; }
+        .sub-box { background: #f8f9fa; padding: 10px; border-radius: 15px; border: 1px solid #eee; min-height: 140px; }
+        .list-item { font-size: 0.75rem; display: flex; justify-content: space-between; margin-bottom: 5px; color: #444; }
+    </style>
+</head>
+<body>
+
+    <div id="setup-screen" class="container">
+        <div id="admin-trigger" style="font-size:4rem; cursor:pointer;" onmousedown="startTimer()" onmouseup="clearTimer()" ontouchstart="startTimer()" ontouchend="clearTimer()">🧠</div>
+        <h2>Number Skill</h2>
+        <p style="font-size: 0.85rem; color: #636e72; margin-top: -10px;">วัดกึ๋นความไวในการเรียงตัวเลข</p>
+        <input type="text" id="uName" placeholder="ชื่อ - นามสกุล">
+        <input type="text" id="uDept" placeholder="แผนก">
+        <input type="text" id="uComp" placeholder="บริษัท">
+        <button onclick="startSession()">เริ่มทดสอบ</button>
+        <div id="admin-controls" class="hidden" style="margin-top:20px;">
+            <button onclick="exportCSV()" style="background:#b2bec3; width:100%;">📥 โหลด Excel</button>
+            <button onclick="clearData()" style="background:#ff7675; width:100%; margin-top:5px;">🗑️ ล้างประวัติ</button>
+        </div>
+    </div>
+
+    <div id="gameArea" class="game-area">
+        <h2 id="roundText">รอบที่ 1/5</h2>
+        <p>เป้าหมายต่อไป: <span id="nextNum" style="font-size: 1.8rem; color: var(--success); font-weight: bold;">1</span></p>
+        <div class="grid" id="numberGrid"></div>
+    </div>
+
+    <div id="summary-screen" class="container hidden">
+        <h2>เวลาเฉลี่ยรวม</h2>
+        <h1 id="avgResult">0.00 s</h1>
+        <p id="finalFeedback" style="font-weight: 600; margin: 10px 0; min-height: 3em;"></p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
+            <div class="sub-box"><h4>🎯 ผลรายด่าน</h4><div id="myHistory"></div></div>
+            <div class="sub-box"><h4>🏆 Top 5 เครื่องนี้</h4><div id="topFive"></div></div>
+        </div>
+        <button onclick="location.reload()" style="background: #2d3436; margin-top: 15px;">ลองอีกรอบไหม?</button>
+    </div>
+
+    <script>
+        // ใส่ลิงก์กูเกิ้ลชีทให้เรียบร้อยครับ
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx74suEsJpXCvFEBri75bh9Kk9PcTQtbMTngmdRRYp-JBHHCKr7l0biGo71Kx_lhLUkgg/exec";
+        
+        let user = {}, rounds = [], currentRound = 0, startTime, pressTimer, expectedNum = 1;
+        const levels = [6, 6, 6, 9, 9];
+        const ADMIN_PASS = "3341";
+
+        function startTimer() { pressTimer = setTimeout(() => { if(prompt("รหัส Admin:") === ADMIN_PASS) document.getElementById('admin-controls').classList.remove('hidden'); }, 3000); }
+        function clearTimer() { clearTimeout(pressTimer); }
+
+        function startSession() {
+            user = { name: document.getElementById('uName').value.trim(), dept: document.getElementById('uDept').value.trim(), comp: document.getElementById('uComp').value.trim() };
+            if(!user.name || !user.dept || !user.comp) return alert("กรอกข้อมูลให้ครบถ้วนก่อนนะครับ เดี๋ยวหัวหน้าตามตัวไม่เจอ!");
+            document.getElementById('setup-screen').classList.add('hidden');
+            nextRound();
+        }
+
+        function nextRound() {
+            if (currentRound >= levels.length) return showSummary();
+            let maxNum = levels[currentRound++];
+            expectedNum = 1;
+            document.getElementById('roundText').innerText = `รอบที่ ${currentRound}/5`;
+            document.getElementById('nextNum').innerText = expectedNum;
+            document.getElementById('gameArea').style.display = 'flex';
+            renderButtons(maxNum);
+            startTime = Date.now();
+        }
+
+        function renderButtons(count) {
+            const grid = document.getElementById('numberGrid');
+            grid.innerHTML = '';
+            let nums = Array.from({length: count}, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+            nums.forEach(n => {
+                let btn = document.createElement('div');
+                btn.className = 'num-btn';
+                btn.innerText = n;
+                btn.onclick = () => {
+                    if (n === expectedNum) {
+                        btn.classList.add('correct');
+                        if (++expectedNum > count) {
+                            rounds.push(Date.now() - startTime);
+                            setTimeout(nextRound, 500);
+                        } else document.getElementById('nextNum').innerText = expectedNum;
+                    } else {
+                        btn.classList.add('wrong');
+                        setTimeout(() => { alert(`อุ๊ย! ผิดลำดับ ต้องเริ่มรอบที่ ${currentRound} ใหม่ครับ`); renderButtons(count); startTime = Date.now(); expectedNum = 1; document.getElementById('nextNum').innerText = 1; }, 200);
+                    }
+                };
+                grid.appendChild(btn);
+            });
+        }
+
+        function getFunnyFeedback(avg) {
+            if(avg < 4500) return { t: "🚀 ไวระดับเทพ! สมองประมวลผลฉับไว ไร้ที่ติจนแฟนต้องอึ้งครับ", c: "#00b894" };
+            if(avg <= 7500) return { t: "✅ ยอดเยี่ยม! สมาธินิ่ง ร่างกายและสมองประสานงานกันได้ดีเยี่ยม", c: "#0984e3" };
+            if(avg <= 11000) return { t: "⚠️ เริ่มเบลอแล้วพี่! เหมือนกาแฟยังไม่เข้ากระแสเลือด พักซักนิดนะ", c: "#fdcb6e" };
+            return { t: "🛑 ตาเริ่มลายแล้วนะจ๊ะ! หาเลข 9 ตัวเหมือนหาเข็มในมหาสมุทร พักสายตาก่อนนะ", c: "#ff7675" };
+        }
+
+        function showSummary() {
+            document.getElementById('gameArea').style.display = 'none';
+            document.getElementById('summary-screen').classList.remove('hidden');
+            let avg = Math.round(rounds.reduce((a, b) => a + b) / rounds.length);
+            let res = getFunnyFeedback(avg);
+            document.getElementById('avgResult').innerText = (avg/1000).toFixed(2) + " s";
+            document.getElementById('avgResult').style.color = res.c;
+            document.getElementById('finalFeedback').innerText = res.t;
+            document.getElementById('myHistory').innerHTML = rounds.map((r, i) => `<div class="list-item"><span>รอบ ${i+1}</span><b>${(r/1000).toFixed(2)}s</b></div>`).join('');
+            saveScore(avg);
+            sendToSheet(avg);
+        }
+
+        function saveScore(avg) {
+            let logs = JSON.parse(localStorage.getItem('numSkill_final')) || [];
+            logs.push({ date: new Date().toLocaleString('th-TH'), ...user, avg });
+            localStorage.setItem('numSkill_final', JSON.stringify(logs));
+            let top5 = [...logs].sort((a,b)=>a.avg-b.avg).slice(0, 5);
+            document.getElementById('topFive').innerHTML = top5.map((s, i) => `<div class="list-item"><span>${i+1}. ${s.name}</span><b>${(s.avg/1000).toFixed(2)}s</b></div>`).join('');
+        }
+
+        function sendToSheet(avg) {
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    gameName: "Namber", // ชื่อแท็บใน Google Sheet
+                    ...user, 
+                    avg: (avg/1000).toFixed(2), 
+                    date: new Date().toLocaleString('th-TH') 
+                })
+            });
+        }
+
+        function exportCSV() {
+            let logs = JSON.parse(localStorage.getItem('numSkill_final')) || [];
+            let csv = "\uFEFFวันที่,ชื่อ,แผนก,บริษัท,วินาที\n" + logs.map(l => `${l.date},${l.name},${l.dept},${l.comp},${(l.avg/1000).toFixed(2)}`).join("\n");
+            let link = document.createElement("a");
+            link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+            link.download = "Number_Report.csv"; link.click();
+        }
+
+        function clearData() { if(confirm("ล้างข้อมูลจริงเหรอ? เสียดายคะแนนนะ!")) { localStorage.clear(); location.reload(); } }
+    </script>
+</body>
+</html>
